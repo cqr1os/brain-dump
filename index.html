@@ -1,0 +1,506 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Brain Dump</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Brain Dump">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#f2f3f6" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#13151b" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<style>
+/* One box at the top, then your days. System fonts so it opens instantly and feels native on iPhone. */
+:root {
+  --bg: #f2f3f6;
+  --surface: #ffffff;
+  --ink: #1a1d26;
+  --muted: #6a7080;
+  --line: #e3e6ec;
+  --ring: #b6bbc7;
+  --hi: #ffd43b;
+  --hi-ink: #2b2400;
+  --ok: #23824f;
+  --danger: #d63b3b;
+  --danger-ink: #ffffff;
+  --focus: #3b5bdb;
+  --toast-action: #ffd43b;
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", Roboto, sans-serif;
+  --font-round: ui-rounded, "SF Pro Rounded", -apple-system, system-ui, sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #13151b;
+    --surface: #1d2029;
+    --ink: #eceef3;
+    --muted: #959cab;
+    --line: #2b2f3a;
+    --ring: #4c5260;
+    --hi: #ffd43b;
+    --hi-ink: #231d00;
+    --ok: #5cc98b;
+    --danger: #ff6b6b;
+    --danger-ink: #2a0606;
+    --focus: #8ea2ff;
+    --toast-action: #7a5a00;
+    color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+[hidden] { display: none !important; }
+html, body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 17px;
+  line-height: 1.4;
+}
+body { min-height: 100dvh; padding-bottom: calc(48px + env(safe-area-inset-bottom, 0px)); }
+button { font: inherit; color: inherit; }
+button:focus-visible, .row:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+
+.top {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--bg);
+  padding-top: calc(env(safe-area-inset-top, 0px) + 12px);
+  padding-bottom: 10px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.inner { max-width: 640px; margin: 0 auto; }
+
+.box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface);
+  border: 1.5px solid var(--line);
+  border-radius: 20px;
+  padding: 6px 6px 6px 18px;
+}
+.box:focus-within { border-color: var(--focus); }
+#say {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 20px;
+  padding: 14px 0;
+}
+#say::placeholder { color: var(--muted); }
+.send {
+  flex: none;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  border: 0;
+  background: var(--hi);
+  color: var(--hi-ink);
+  display: grid;
+  place-items: center;
+  transition: opacity 0.15s ease;
+}
+.send svg { width: 20px; height: 20px; }
+.send:disabled { opacity: 0.3; }
+
+main {
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+
+.day { margin-top: 18px; }
+.day-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 8px; padding: 0 4px 8px; }
+.day-name { font-family: var(--font-round); font-weight: 700; font-size: 23px; letter-spacing: -0.01em; }
+.day-date { color: var(--muted); font-size: 15px; }
+.day ul { list-style: none; margin: 0; padding: 0; background: var(--surface); border-radius: 16px; overflow: hidden; }
+
+.row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 13px 14px;
+  border-top: 1px solid var(--line);
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  transition: background-color 0.2s ease;
+}
+li:first-child > .row, li:first-child > .confirm { border-top: 0; }
+.row.pressing { background: var(--line); }
+.mark {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin-top: 1px;
+  border-radius: 50%;
+  border: 2px solid var(--ring);
+  display: grid;
+  place-items: center;
+  color: transparent;
+}
+.mark svg { width: 12px; height: 12px; }
+.row.done .mark { background: var(--ok); border-color: var(--ok); color: var(--surface); }
+.text { flex: 1; min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.row.done .text { color: var(--muted); text-decoration: line-through; text-decoration-thickness: 1.5px; }
+.time { flex: none; padding-top: 2px; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+
+.confirm {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 8px 8px 14px;
+  border-top: 1px solid var(--line);
+}
+.confirm span { flex: 1; min-width: 0; color: var(--muted); font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.btn { flex: none; height: 38px; padding: 0 14px; border-radius: 10px; border: 0; font-size: 15px; font-weight: 600; }
+.btn-danger { background: var(--danger); color: var(--danger-ink); }
+.btn-plain { background: transparent; color: var(--ink); }
+
+.empty { text-align: center; color: var(--muted); padding: 56px 24px 0; }
+.empty strong { display: block; color: var(--ink); font-family: var(--font-round); font-size: 20px; margin-bottom: 6px; }
+.hint { text-align: center; color: var(--muted); font-size: 13px; padding: 28px 16px 0; }
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: calc(100% - 32px);
+  background: var(--ink);
+  color: var(--bg);
+  border-radius: 14px;
+  padding: 10px 10px 10px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+  z-index: 10;
+  box-shadow: 0 8px 28px rgba(10, 12, 20, 0.22);
+}
+.toast span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.toast button { flex: none; background: transparent; border: 0; color: var(--toast-action); font-weight: 700; padding: 6px 8px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .row, .send { transition: none; }
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <form class="inner box" id="add-form" autocomplete="off">
+    <input id="say" type="text" maxlength="1000" placeholder="What's on your mind?" aria-label="What's on your mind?"
+           enterkeyhint="send" autocapitalize="sentences" autocorrect="on" spellcheck="true" autofocus>
+    <button class="send" id="send" type="submit" aria-label="Save" disabled>
+      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 16V4M4.5 9.5L10 4l5.5 5.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+  </form>
+</header>
+
+<main class="inner" id="days"></main>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<script>
+(function () {
+  const KEY = "brain-dump-v1";
+  const DAY = 864e5;
+  const CHECK_SVG = '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 6.3l2.3 2.2L9.6 3.6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+  const form = document.getElementById("add-form");
+  const input = document.getElementById("say");
+  const send = document.getElementById("send");
+  const daysEl = document.getElementById("days");
+  const toastEl = document.getElementById("toast");
+
+  let items = load();
+  let confirmId = null;
+  let confirmShownAt = 0;
+
+  // ---------- storage (on this phone only) ----------
+
+  function load() {
+    try {
+      const v = JSON.parse(localStorage.getItem(KEY) || "[]");
+      return Array.isArray(v) ? v.filter((i) => i && typeof i.text === "string" && typeof i.at === "number") : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function save() {
+    try {
+      localStorage.setItem(KEY, JSON.stringify(items));
+    } catch (e) {
+      showToast("Couldn't save. Your phone might be out of space.");
+    }
+  }
+
+  const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+
+  // ---------- dates ----------
+
+  function startOfDay(d) {
+    const x = new Date(d);
+    x.setHours(0, 0, 0, 0);
+    return x;
+  }
+
+  function dayKey(ts) {
+    const d = new Date(ts);
+    return d.getFullYear() + "-" + d.getMonth() + "-" + d.getDate();
+  }
+
+  function dayLabels(ts) {
+    const d = new Date(ts);
+    const diff = Math.round((startOfDay(new Date()) - startOfDay(d)) / DAY);
+    const sameYear = d.getFullYear() === new Date().getFullYear();
+    if (diff === 0 || diff === 1) {
+      return {
+        name: diff === 0 ? "Today" : "Yesterday",
+        date: d.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })
+      };
+    }
+    return {
+      name: d.toLocaleDateString(undefined, { weekday: "long" }),
+      date: d.toLocaleDateString(undefined, sameYear ? { month: "long", day: "numeric" } : { month: "long", day: "numeric", year: "numeric" })
+    };
+  }
+
+  const timeOf = (ts) => new Date(ts).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+
+  // ---------- actions ----------
+
+  function updateSend() {
+    send.disabled = !input.value.trim();
+  }
+
+  input.addEventListener("input", updateSend);
+
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const text = input.value.trim().slice(0, 1000);
+    if (!text) return;
+    items.push({ id: newId(), text, at: Date.now(), done: false });
+    save();
+    input.value = "";
+    updateSend();
+    render();
+    input.focus();
+  });
+
+  function toggle(id) {
+    const it = items.find((i) => i.id === id);
+    if (!it) return;
+    it.done = !it.done;
+    save();
+    render();
+  }
+
+  function askDelete(id) {
+    confirmId = id;
+    confirmShownAt = Date.now();
+    render();
+  }
+
+  function cancelDelete() {
+    confirmId = null;
+    render();
+  }
+
+  function remove(id) {
+    const idx = items.findIndex((i) => i.id === id);
+    if (idx < 0) return;
+    const [gone] = items.splice(idx, 1);
+    confirmId = null;
+    save();
+    render();
+    showToast("Deleted", {
+      label: "Undo",
+      onClick: () => {
+        items.push(gone);
+        save();
+        render();
+      }
+    });
+  }
+
+  // tap = cross out, hold = delete
+  function attachPress(row, item) {
+    let timer = null;
+    let long = false;
+    let sx = 0;
+    let sy = 0;
+    const cancel = () => {
+      if (timer) clearTimeout(timer);
+      timer = null;
+      row.classList.remove("pressing");
+    };
+    row.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return;
+      long = false;
+      sx = e.clientX;
+      sy = e.clientY;
+      row.classList.add("pressing");
+      timer = setTimeout(() => {
+        timer = null;
+        long = true;
+        row.classList.remove("pressing");
+        askDelete(item.id);
+      }, 550);
+    });
+    row.addEventListener("pointermove", (e) => {
+      if (timer && (Math.abs(e.clientX - sx) > 10 || Math.abs(e.clientY - sy) > 10)) cancel();
+    });
+    row.addEventListener("pointerup", () => { if (timer) cancel(); });
+    row.addEventListener("pointercancel", cancel);
+    row.addEventListener("pointerleave", cancel);
+    row.addEventListener("contextmenu", (e) => e.preventDefault());
+    row.addEventListener("click", () => {
+      if (long) { long = false; return; }
+      toggle(item.id);
+    });
+    row.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(item.id); }
+      if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); askDelete(item.id); }
+    });
+  }
+
+  // ---------- rendering ----------
+
+  function el(tag, cls, text) {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  }
+
+  function rowFor(item) {
+    const li = document.createElement("li");
+
+    if (item.id === confirmId) {
+      const c = el("div", "confirm");
+      const label = el("span", null, "Delete “" + item.text + "”?");
+      const del = el("button", "btn btn-danger", "Delete");
+      del.type = "button";
+      del.addEventListener("click", () => {
+        if (Date.now() - confirmShownAt < 400) return; // ignore the lift of the same long-press
+        remove(item.id);
+      });
+      const keep = el("button", "btn btn-plain", "Cancel");
+      keep.type = "button";
+      keep.addEventListener("click", cancelDelete);
+      c.append(label, del, keep);
+      li.append(c);
+      return li;
+    }
+
+    const row = el("div", "row" + (item.done ? " done" : ""));
+    row.tabIndex = 0;
+    row.setAttribute("role", "button");
+    row.setAttribute("aria-pressed", String(!!item.done));
+    row.dataset.id = item.id;
+    const mark = el("span", "mark");
+    mark.innerHTML = CHECK_SVG;
+    row.append(mark, el("span", "text", item.text), el("span", "time", timeOf(item.at)));
+    attachPress(row, item);
+    li.append(row);
+    return li;
+  }
+
+  function render() {
+    const focusedId = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.id : null;
+
+    if (!items.length) {
+      const empty = el("div", "empty");
+      empty.append(el("strong", null, "Nothing yet"), document.createTextNode("Type anything up top: a thought, a to-do, whatever."));
+      daysEl.replaceChildren(empty);
+      return;
+    }
+
+    const sorted = items.slice().sort((a, b) => b.at - a.at);
+    const groups = [];
+    for (const it of sorted) {
+      const k = dayKey(it.at);
+      const last = groups[groups.length - 1];
+      if (last && last.key === k) last.items.push(it);
+      else groups.push({ key: k, at: it.at, items: [it] });
+    }
+
+    const frag = document.createDocumentFragment();
+    for (const g of groups) {
+      const labels = dayLabels(g.at);
+      const section = el("section", "day");
+      const head = el("h2", "day-head");
+      head.style.margin = "0";
+      head.append(el("span", "day-name", labels.name), el("span", "day-date", labels.date));
+      const ul = document.createElement("ul");
+      ul.append(...g.items.map(rowFor));
+      section.append(head, ul);
+      frag.append(section);
+    }
+    frag.append(el("p", "hint", "Tap a line to cross it out. Hold a line to delete it."));
+    daysEl.replaceChildren(frag);
+
+    if (focusedId) {
+      const again = daysEl.querySelector('[data-id="' + CSS.escape(focusedId) + '"]');
+      if (again) again.focus();
+    }
+  }
+
+  // ---------- toast ----------
+
+  let toastTimer = null;
+  function hideToast() {
+    toastEl.hidden = true;
+    toastEl.replaceChildren();
+  }
+  function showToast(msg, action) {
+    toastEl.replaceChildren(el("span", null, msg));
+    if (action) {
+      const b = el("button", null, action.label);
+      b.type = "button";
+      b.addEventListener("click", () => { hideToast(); action.onClick(); });
+      toastEl.append(b);
+    }
+    toastEl.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(hideToast, action ? 5000 : 4000);
+  }
+
+  // ---------- boot ----------
+
+  render();
+  updateSend();
+  input.focus();
+
+  // coming back to the app: refresh "Today"/"Yesterday" and put the cursor back in the box
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      items = load();
+      render();
+      if (!confirmId) input.focus();
+    }
+  });
+
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+  }
+})();
+</script>
+</body>
+</html>
