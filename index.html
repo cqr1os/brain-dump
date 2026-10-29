@@ -29,6 +29,9 @@
   --danger-ink: #ffffff;
   --focus: #3b5bdb;
   --toast-action: #ffd43b;
+  --warn-bg: #fff4d6;
+  --warn-ink: #5a4300;
+  --warn-line: #f0d27a;
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", Roboto, sans-serif;
   --font-round: ui-rounded, "SF Pro Rounded", -apple-system, system-ui, sans-serif;
   color-scheme: light;
@@ -48,6 +51,9 @@
     --danger-ink: #2a0606;
     --focus: #8ea2ff;
     --toast-action: #7a5a00;
+    --warn-bg: #2a2410;
+    --warn-ink: #f5dc8a;
+    --warn-line: #4a3e14;
     color-scheme: dark;
   }
 }
@@ -77,6 +83,18 @@ button:focus-visible, .row:focus-visible { outline: 2px solid var(--focus); outl
   padding-right: max(16px, env(safe-area-inset-right, 0px));
 }
 .inner { max-width: 640px; margin: 0 auto; }
+
+.banner {
+  margin-bottom: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--warn-line);
+  border-radius: 14px;
+  background: var(--warn-bg);
+  color: var(--warn-ink);
+  font-size: 15px;
+  line-height: 1.35;
+}
+.banner strong { display: block; margin-bottom: 2px; }
 
 .box {
   display: flex;
@@ -121,9 +139,9 @@ main {
 }
 
 .day { margin-top: 18px; }
-.day-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 8px; padding: 0 4px 8px; }
+.day-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 8px; margin: 0; padding: 0 4px 8px; }
 .day-name { font-family: var(--font-round); font-weight: 700; font-size: 23px; letter-spacing: -0.01em; }
-.day-date { color: var(--muted); font-size: 15px; }
+.day-date { color: var(--muted); font-size: 15px; font-weight: 400; }
 .day ul { list-style: none; margin: 0; padding: 0; background: var(--surface); border-radius: 16px; overflow: hidden; }
 
 .row {
@@ -201,6 +219,10 @@ li:first-child > .row, li:first-child > .confirm { border-top: 0; }
 </head>
 <body>
 <header class="top">
+  <div class="inner banner" id="safari-banner" role="alert" hidden>
+    <strong>You're in Safari, not the app.</strong>
+    Notes you type here are kept separate from your Brain Dump app. Open it from the yellow icon on your home screen instead.
+  </div>
   <form class="inner box" id="add-form" autocomplete="off">
     <input id="say" type="text" maxlength="1000" placeholder="What's on your mind?" aria-label="What's on your mind?"
            enterkeyhint="send" autocapitalize="sentences" autocorrect="on" spellcheck="true" autofocus>
@@ -226,27 +248,125 @@ li:first-child > .row, li:first-child > .confirm { border-top: 0; }
   const daysEl = document.getElementById("days");
   const toastEl = document.getElementById("toast");
 
-  let items = load();
   let confirmId = null;
   let confirmShownAt = 0;
 
-  // ---------- storage (on this phone only) ----------
+  // ---------- storage ----------
+  // Every change is written to two places on the phone (localStorage and IndexedDB).
+  // Loading only ever merges what it finds into what's on screen, so a store that
+  // comes back empty can never wipe notes. Deletes are kept as markers so they stick.
 
-  function load() {
+  const valid = (i) => i && typeof i.id === "string" && typeof i.text === "string" && typeof i.at === "number";
+  const stamp = (i) => i.updated || i.at;
+  const visible = () => items.filter((i) => !i.deleted);
+
+  function mergeLists(...lists) {
+    const byId = new Map();
+    for (const list of lists) {
+      if (!Array.isArray(list)) continue;
+      for (const it of list) {
+        if (!valid(it)) continue;
+        const prev = byId.get(it.id);
+        if (!prev || stamp(it) >= stamp(prev)) byId.set(it.id, it);
+      }
+    }
+    return [...byId.values()];
+  }
+
+  function readLocal() {
     try {
       const v = JSON.parse(localStorage.getItem(KEY) || "[]");
-      return Array.isArray(v) ? v.filter((i) => i && typeof i.text === "string" && typeof i.at === "number") : [];
+      return Array.isArray(v) ? v : [];
     } catch (e) {
       return [];
     }
   }
 
-  function save() {
+  function writeLocal(list) {
     try {
-      localStorage.setItem(KEY, JSON.stringify(items));
+      localStorage.setItem(KEY, JSON.stringify(list));
+      return true;
     } catch (e) {
-      showToast("Couldn't save. Your phone might be out of space.");
+      return false;
     }
+  }
+
+  let idbPromise = null;
+  function openIdb() {
+    if (!idbPromise) {
+      idbPromise = new Promise((resolve) => {
+        try {
+          const req = indexedDB.open("brain-dump", 1);
+          req.onupgradeneeded = () => req.result.createObjectStore("kv");
+          req.onsuccess = () => {
+            const db = req.result;
+            db.onclose = () => { idbPromise = null; };
+            resolve(db);
+          };
+          req.onerror = () => resolve(null);
+          req.onblocked = () => resolve(null);
+        } catch (e) {
+          resolve(null);
+        }
+      });
+    }
+    return idbPromise;
+  }
+
+  // iPhone sometimes drops the database connection while the app sits in the background,
+  // so a failed transaction gets one more try on a fresh connection.
+  async function idbRun(mode, fn) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const db = await openIdb();
+      if (!db) return null;
+      try {
+        return await new Promise((resolve, reject) => {
+          const tx = db.transaction("kv", mode);
+          const req = fn(tx.objectStore("kv"));
+          tx.oncomplete = () => resolve(req.result);
+          tx.onerror = tx.onabort = () => reject(tx.error);
+        });
+      } catch (e) {
+        idbPromise = null;
+      }
+    }
+    return null;
+  }
+
+  async function readIdb() {
+    const v = await idbRun("readonly", (s) => s.get(KEY));
+    return Array.isArray(v) ? v : [];
+  }
+
+  async function writeIdb(list) {
+    return (await idbRun("readwrite", (s) => s.put(list, KEY))) !== null;
+  }
+
+  let items = mergeLists(readLocal());
+  let writeChain = Promise.resolve();
+
+  // what's on screen wins ties, but anything another window saved meanwhile is kept
+  const withStored = () => mergeLists(readLocal(), items);
+
+  function save() {
+    items = withStored();
+    const snapshot = items.slice();
+    const okLocal = writeLocal(snapshot);
+    writeChain = writeChain
+      .then(() => writeIdb(snapshot))
+      .then((okIdb) => {
+        if (!okLocal && !okIdb) showToast("Couldn't save. Your phone might be out of space.");
+      });
+  }
+
+  async function syncFromStorage() {
+    const fromIdb = await readIdb();
+    const merged = mergeLists(items, readLocal(), fromIdb);
+    const sig = (list) => JSON.stringify(list.map((i) => i.id + ":" + stamp(i)).sort());
+    const changed = sig(merged) !== sig(items);
+    items = merged;
+    if (changed) render();
+    save(); // writes the full list back to both places, refilling either one if it was emptied
   }
 
   const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -294,7 +414,8 @@ li:first-child > .row, li:first-child > .confirm { border-top: 0; }
     e.preventDefault();
     const text = input.value.trim().slice(0, 1000);
     if (!text) return;
-    items.push({ id: newId(), text, at: Date.now(), done: false });
+    const now = Date.now();
+    items = items.concat({ id: newId(), text, at: now, updated: now, done: false });
     save();
     input.value = "";
     updateSend();
@@ -302,12 +423,15 @@ li:first-child > .row, li:first-child > .confirm { border-top: 0; }
     input.focus();
   });
 
-  function toggle(id) {
-    const it = items.find((i) => i.id === id);
-    if (!it) return;
-    it.done = !it.done;
+  function change(id, fields) {
+    items = items.map((i) => (i.id === id ? Object.assign({}, i, fields, { updated: Date.now() }) : i));
     save();
     render();
+  }
+
+  function toggle(id) {
+    const it = items.find((i) => i.id === id);
+    if (it) change(id, { done: !it.done });
   }
 
   function askDelete(id) {
@@ -322,20 +446,9 @@ li:first-child > .row, li:first-child > .confirm { border-top: 0; }
   }
 
   function remove(id) {
-    const idx = items.findIndex((i) => i.id === id);
-    if (idx < 0) return;
-    const [gone] = items.splice(idx, 1);
     confirmId = null;
-    save();
-    render();
-    showToast("Deleted", {
-      label: "Undo",
-      onClick: () => {
-        items.push(gone);
-        save();
-        render();
-      }
-    });
+    change(id, { deleted: true });
+    showToast("Deleted", { label: "Undo", onClick: () => change(id, { deleted: false }) });
   }
 
   // tap = cross out, hold = delete
@@ -423,15 +536,16 @@ li:first-child > .row, li:first-child > .confirm { border-top: 0; }
 
   function render() {
     const focusedId = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.id : null;
+    const shown = visible();
 
-    if (!items.length) {
+    if (!shown.length) {
       const empty = el("div", "empty");
       empty.append(el("strong", null, "Nothing yet"), document.createTextNode("Type anything up top: a thought, a to-do, whatever."));
       daysEl.replaceChildren(empty);
       return;
     }
 
-    const sorted = items.slice().sort((a, b) => b.at - a.at);
+    const sorted = shown.sort((a, b) => b.at - a.at);
     const groups = [];
     for (const it of sorted) {
       const k = dayKey(it.at);
@@ -445,7 +559,6 @@ li:first-child > .row, li:first-child > .confirm { border-top: 0; }
       const labels = dayLabels(g.at);
       const section = el("section", "day");
       const head = el("h2", "day-head");
-      head.style.margin = "0";
       head.append(el("span", "day-name", labels.name), el("span", "day-date", labels.date));
       const ul = document.createElement("ul");
       ul.append(...g.items.map(rowFor));
@@ -483,21 +596,42 @@ li:first-child > .row, li:first-child > .confirm { border-top: 0; }
 
   // ---------- boot ----------
 
+  // Safari and the home-screen app keep separate notes on iPhone, so say so when this isn't the app
+  const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const isApp = window.navigator.standalone === true || window.matchMedia("(display-mode: standalone)").matches;
+  document.getElementById("safari-banner").hidden = !(isIOS && !isApp);
+
   render();
   updateSend();
   input.focus();
+  syncFromStorage();
 
-  // coming back to the app: refresh "Today"/"Yesterday" and put the cursor back in the box
+  // coming back to the app: pull in anything saved, refresh "Today"/"Yesterday", cursor back in the box
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") {
-      items = load();
       render();
+      syncFromStorage();
       if (!confirmId) input.focus();
+    } else {
+      writeLocal(withStored());
     }
   });
+  window.addEventListener("pagehide", () => writeLocal(withStored()));
 
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+
   if ("serviceWorker" in navigator) {
+    // when a new version arrives, switch to it right away unless you're mid-typing
+    const hadController = !!navigator.serviceWorker.controller;
+    let reloadWhenHidden = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (!hadController) return;
+      if (!input.value) location.reload();
+      else reloadWhenHidden = true;
+    });
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden" && reloadWhenHidden) location.reload();
+    });
     window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
   }
 })();

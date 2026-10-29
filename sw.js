@@ -1,5 +1,5 @@
 // Opens instantly from the saved copy, then quietly fetches any update for next time.
-const CACHE = "brain-dump-v1";
+const CACHE = "brain-dump-v2";
 const FILES = [
   "./",
   "index.html",
@@ -10,7 +10,12 @@ const FILES = [
 ];
 
 self.addEventListener("install", (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES)).then(() => self.skipWaiting()));
+  // cache: "reload" skips the browser's HTTP cache so a new version never installs old files
+  e.waitUntil(
+    caches.open(CACHE)
+      .then((c) => c.addAll(FILES.map((f) => new Request(f, { cache: "reload" }))))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener("activate", (e) => {
