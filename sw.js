@@ -1,5 +1,5 @@
 // Opens instantly from the saved copy, then quietly fetches any update for next time.
-const CACHE = "brain-dump-v2";
+const CACHE = "brain-dump-v3";
 const FILES = [
   "./",
   "index.html",

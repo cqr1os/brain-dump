@@ -212,6 +212,63 @@ li:first-child > .row, li:first-child > .confirm { border-top: 0; }
 .toast span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .toast button { flex: none; background: transparent; border: 0; color: var(--toast-action); font-weight: 700; padding: 6px 8px; }
 
+.foot { text-align: center; padding: 4px 16px 0; }
+.backup-link {
+  background: none;
+  border: 0;
+  padding: 8px 10px;
+  color: var(--muted);
+  font-size: 13px;
+  text-decoration: underline;
+  text-decoration-color: var(--ring);
+  text-underline-offset: 3px;
+}
+.backup-link.warn { color: var(--danger); font-weight: 600; }
+
+.panel {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  overflow-y: auto;
+  background: var(--bg);
+  padding-top: calc(env(safe-area-inset-top, 0px) + 20px);
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 28px);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.panel-inner, .panel-view, .key-form { display: flex; flex-direction: column; gap: 14px; }
+.panel-title { margin: 0; font-family: var(--font-round); font-size: 26px; letter-spacing: -0.01em; }
+.panel-p { margin: 0; color: var(--muted); }
+.steps { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 10px; }
+.steps a { color: var(--focus); font-weight: 600; }
+#key-input {
+  height: 52px;
+  padding: 0 14px;
+  border: 1.5px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 16px;
+}
+#key-input:focus { outline: 0; border-color: var(--focus); }
+.key-msg { margin: 0; min-height: 1.3em; color: var(--muted); font-size: 15px; }
+.key-msg.bad { color: var(--danger); }
+.panel-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.pbtn {
+  height: 46px;
+  padding: 0 18px;
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 600;
+}
+.pbtn-main { background: var(--hi); border-color: var(--hi); color: var(--hi-ink); }
+.pbtn-danger { color: var(--danger); }
+.pbtn:disabled { opacity: 0.5; }
+
 @media (prefers-reduced-motion: reduce) {
   .row, .send { transition: none; }
 }
@@ -233,6 +290,45 @@ li:first-child > .row, li:first-child > .confirm { border-top: 0; }
 </header>
 
 <main class="inner" id="days"></main>
+
+<div class="inner foot">
+  <button class="backup-link" id="backup" type="button">Turn on backup</button>
+</div>
+
+<section class="panel" id="panel" role="dialog" aria-modal="true" aria-labelledby="panel-title" hidden>
+  <div class="inner panel-inner">
+    <h2 class="panel-title" id="panel-title">Back up your notes</h2>
+
+    <div class="panel-view" id="panel-setup">
+      <p class="panel-p">Your notes get copied to a private repo on your GitHub called brain-dump-notes. Only you can see it. This app needs a key that can write to that one repo and nothing else.</p>
+      <ol class="steps">
+        <li><a href="https://github.com/settings/personal-access-tokens/new?name=Brain+Dump+backup&amp;description=Lets+the+Brain+Dump+app+back+up+notes&amp;target_name=cqr1os&amp;contents=write" target="_blank" rel="noopener">Open GitHub's key page</a> and sign in if it asks.</li>
+        <li>Under <b>Repository access</b>, pick <b>Only select repositories</b> and choose <b>brain-dump-notes</b>.</li>
+        <li>Under <b>Permissions</b>, set <b>Contents</b> to <b>Read and write</b>.</li>
+        <li>Set <b>Expiration</b> to <b>No expiration</b> if it's there, otherwise the longest one. Tap <b>Generate token</b> and copy it.</li>
+      </ol>
+      <form class="key-form" id="key-form" autocomplete="off">
+        <input id="key-input" type="text" placeholder="Paste your key here" aria-label="GitHub key"
+               autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="done">
+        <p class="key-msg" id="key-msg" role="status"></p>
+        <div class="panel-actions">
+          <button class="pbtn pbtn-main" id="key-save" type="submit">Save</button>
+          <button class="pbtn" type="button" data-close>Cancel</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="panel-view" id="panel-on" hidden>
+      <p class="panel-p" id="panel-status"></p>
+      <div class="panel-actions">
+        <button class="pbtn pbtn-main" id="backup-now" type="button">Back up now</button>
+        <button class="pbtn" id="change-key" type="button">Change key</button>
+        <button class="pbtn pbtn-danger" id="backup-off" type="button">Turn off backup</button>
+        <button class="pbtn" type="button" data-close>Close</button>
+      </div>
+    </div>
+  </div>
+</section>
 
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
@@ -348,7 +444,14 @@ li:first-child > .row, li:first-child > .confirm { border-top: 0; }
   // what's on screen wins ties, but anything another window saved meanwhile is kept
   const withStored = () => mergeLists(readLocal(), items);
 
+  const sig = (list) => JSON.stringify(list.map((i) => i.id + ":" + stamp(i)).sort());
+
   function save() {
+    persistLocal();
+    scheduleBackup();
+  }
+
+  function persistLocal() {
     items = withStored();
     const snapshot = items.slice();
     const okLocal = writeLocal(snapshot);
@@ -362,7 +465,6 @@ li:first-child > .row, li:first-child > .confirm { border-top: 0; }
   async function syncFromStorage() {
     const fromIdb = await readIdb();
     const merged = mergeLists(items, readLocal(), fromIdb);
-    const sig = (list) => JSON.stringify(list.map((i) => i.id + ":" + stamp(i)).sort());
     const changed = sig(merged) !== sig(items);
     items = merged;
     if (changed) render();
@@ -594,6 +696,257 @@ li:first-child > .row, li:first-child > .confirm { border-top: 0; }
     toastTimer = setTimeout(hideToast, action ? 5000 : 4000);
   }
 
+  // ---------- online backup ----------
+  // The whole list (deletes included) lives in notes.json in a private repo. Every sync pulls it,
+  // merges it with what's on the phone, and pushes the result only if GitHub is missing something.
+  // A file it can't read is never overwritten.
+
+  const API = "https://api.github.com/repos/cqr1os/brain-dump-notes/contents/notes.json";
+  const BACKUP_KEY = "brain-dump-backup-key";
+  const BACKUP_AT = "brain-dump-backup-at";
+  const backup = { key: null, state: "idle", at: 0 };
+
+  const backupBtn = document.getElementById("backup");
+  const panel = document.getElementById("panel");
+  const panelSetup = document.getElementById("panel-setup");
+  const panelOn = document.getElementById("panel-on");
+  const panelStatus = document.getElementById("panel-status");
+  const keyForm = document.getElementById("key-form");
+  const keyInput = document.getElementById("key-input");
+  const keyMsg = document.getElementById("key-msg");
+  const keySave = document.getElementById("key-save");
+
+  const ghHeaders = (key) => ({ Authorization: "Bearer " + key, Accept: "application/vnd.github+json" });
+
+  function toB64(str) {
+    const bytes = new TextEncoder().encode(str);
+    let bin = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(bin);
+  }
+
+  function fromB64(b64) {
+    const bin = atob(b64.replace(/\s/g, ""));
+    return new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)));
+  }
+
+  function backupError(status) {
+    if (status === 401) return { kind: "bad-key" };
+    if (status === 403 || status === 404) return { kind: "no-access" };
+    return { kind: "error" };
+  }
+
+  async function pullRemote(key) {
+    const res = await fetch(API + "?t=" + Date.now(), { cache: "no-store", headers: ghHeaders(key) });
+    if (res.status === 404) return { list: [], sha: null }; // no file yet; a key without access fails on the push instead
+    if (!res.ok) throw backupError(res.status);
+    const j = await res.json();
+    if (!j.content && j.size > 0) throw { kind: "error" };
+    try {
+      const parsed = JSON.parse(fromB64(j.content || "") || "[]");
+      return { list: Array.isArray(parsed) ? parsed : parsed.items || [], sha: j.sha };
+    } catch (e) {
+      throw { kind: "error" };
+    }
+  }
+
+  function pushRemote(key, list, sha) {
+    const body = {
+      message: "Back up notes",
+      content: toB64(JSON.stringify({ updated: new Date().toISOString(), items: list }, null, 1) + "\n")
+    };
+    if (sha) body.sha = sha;
+    return fetch(API, {
+      method: "PUT",
+      cache: "no-store",
+      headers: Object.assign({ "Content-Type": "application/json" }, ghHeaders(key)),
+      body: JSON.stringify(body)
+    });
+  }
+
+  async function runSync() {
+    const key = backup.key;
+    setBackup({ state: "syncing" });
+    try {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const remote = await pullRemote(key);
+        const remoteList = mergeLists(remote.list);
+        const merged = mergeLists(remoteList, readLocal(), items);
+        if (sig(merged) !== sig(items)) {
+          items = merged;
+          persistLocal();
+          render();
+        }
+        if (remote.sha && sig(merged) === sig(remoteList)) return setBackup({ state: "ok", at: Date.now() });
+        const res = await pushRemote(key, merged, remote.sha);
+        if (res.ok) return setBackup({ state: "ok", at: Date.now() });
+        if (res.status === 409 || res.status === 422) continue; // GitHub changed meanwhile: pull and merge again
+        throw backupError(res.status);
+      }
+      throw { kind: "error" };
+    } catch (e) {
+      if (key !== backup.key) return;
+      setBackup({ state: e && e.kind ? e.kind : "offline" });
+    }
+  }
+
+  let syncRun = null;
+  let syncQueued = false;
+  function syncBackup() {
+    if (!backup.key) return Promise.resolve();
+    if (syncRun) {
+      syncQueued = true;
+      return syncRun;
+    }
+    syncRun = runSync().finally(() => {
+      syncRun = null;
+      if (syncQueued) {
+        syncQueued = false;
+        syncBackup();
+      }
+    });
+    return syncRun;
+  }
+
+  let backupTimer = null;
+  function scheduleBackup(delay) {
+    if (!backup.key) return;
+    clearTimeout(backupTimer);
+    backupTimer = setTimeout(() => {
+      backupTimer = null;
+      syncBackup();
+    }, delay == null ? 1500 : delay);
+  }
+
+  function flushBackup() {
+    if (!backupTimer) return;
+    clearTimeout(backupTimer);
+    backupTimer = null;
+    syncBackup();
+  }
+
+  function storeKey(k) {
+    try {
+      if (k) localStorage.setItem(BACKUP_KEY, k);
+      else localStorage.removeItem(BACKUP_KEY);
+    } catch (e) {}
+    idbRun("readwrite", (s) => (k ? s.put(k, BACKUP_KEY) : s.delete(BACKUP_KEY)));
+  }
+
+  async function loadKey() {
+    let k = null;
+    try {
+      k = localStorage.getItem(BACKUP_KEY);
+      backup.at = Number(localStorage.getItem(BACKUP_AT)) || 0;
+    } catch (e) {}
+    if (!k) k = await idbRun("readonly", (s) => s.get(BACKUP_KEY));
+    if (typeof k === "string" && k) {
+      backup.key = k;
+      storeKey(k);
+    }
+    renderBackup();
+  }
+
+  function whenShort(ts) {
+    if (dayKey(ts) === dayKey(Date.now())) return timeOf(ts);
+    return new Date(ts).toLocaleDateString(undefined, { month: "short", day: "numeric" }) + ", " + timeOf(ts);
+  }
+
+  function setBackup(patch) {
+    Object.assign(backup, patch);
+    if (patch.at) {
+      try { localStorage.setItem(BACKUP_AT, String(patch.at)); } catch (e) {}
+    }
+    renderBackup();
+  }
+
+  function backupText() {
+    if (!backup.key) return "Turn on backup";
+    switch (backup.state) {
+      case "syncing": return "Backing up…";
+      case "offline": return "No connection. It'll back up when you're online.";
+      case "bad-key": return "Backup stopped: GitHub didn't accept your key. Tap to fix.";
+      case "no-access": return "Backup stopped: your key can't reach brain-dump-notes. Tap to fix.";
+      case "error": return "Backup didn't go through. It'll try again.";
+      default: return backup.at ? "Backed up " + whenShort(backup.at) : "Backup is on";
+    }
+  }
+
+  function renderBackup() {
+    backupBtn.textContent = backupText();
+    backupBtn.classList.toggle("warn", backup.state === "bad-key" || backup.state === "no-access");
+    panelStatus.textContent = "Backup is on. " +
+      (backup.at ? "Last backup: " + whenShort(backup.at) + ". " : "") +
+      "Your notes are in brain-dump-notes on your GitHub, so if this phone ever loses them, paste your key here again and they come back.";
+  }
+
+  function showSetup(message, bad) {
+    panelSetup.hidden = false;
+    panelOn.hidden = true;
+    keyMsg.textContent = message || "";
+    keyMsg.classList.toggle("bad", !!bad);
+  }
+
+  function openPanel() {
+    const broken = backup.state === "bad-key" || backup.state === "no-access";
+    if (!backup.key) showSetup();
+    else if (broken) showSetup(backupText().replace(" Tap to fix.", " Make a new key and paste it here."), true);
+    else {
+      panelSetup.hidden = true;
+      panelOn.hidden = false;
+    }
+    panel.hidden = false;
+    panel.scrollTop = 0;
+  }
+
+  function closePanel() {
+    panel.hidden = true;
+    keyInput.value = "";
+    input.focus();
+  }
+
+  backupBtn.addEventListener("click", openPanel);
+  panel.querySelectorAll("[data-close]").forEach((b) => b.addEventListener("click", closePanel));
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !panel.hidden) closePanel();
+  });
+  document.getElementById("change-key").addEventListener("click", () => showSetup());
+  document.getElementById("backup-now").addEventListener("click", () => {
+    closePanel();
+    syncBackup();
+  });
+  document.getElementById("backup-off").addEventListener("click", () => {
+    backup.key = null;
+    storeKey(null);
+    setBackup({ state: "idle" });
+    closePanel();
+    showToast("Backup is off. Your notes are still on this phone.");
+  });
+
+  keyForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const k = keyInput.value.trim();
+    if (!k) return showSetup("Paste your key first.", true);
+    showSetup("Checking your key…");
+    keySave.disabled = true;
+    try {
+      const res = await fetch(API + "?t=" + Date.now(), { cache: "no-store", headers: ghHeaders(k) });
+      if (res.status === 401) showSetup("GitHub didn't accept that key. Copy it again and paste the whole thing.", true);
+      else if (res.status === 403 || res.status === 404) showSetup("That key can't open brain-dump-notes. Check steps 2 and 3, then make a new key.", true);
+      else if (!res.ok) showSetup("GitHub had a problem. Try again in a minute.", true);
+      else {
+        backup.key = k;
+        storeKey(k);
+        closePanel();
+        await syncBackup();
+        if (backup.state === "ok") showToast("Backup is on");
+      }
+    } catch (err) {
+      showSetup("No connection. Try again when you're online.", true);
+    }
+    keySave.disabled = false;
+  });
+
   // ---------- boot ----------
 
   // Safari and the home-screen app keep separate notes on iPhone, so say so when this isn't the app
@@ -602,20 +955,26 @@ li:first-child > .row, li:first-child > .confirm { border-top: 0; }
   document.getElementById("safari-banner").hidden = !(isIOS && !isApp);
 
   render();
+  renderBackup();
   updateSend();
   input.focus();
   syncFromStorage();
+  loadKey().then(() => scheduleBackup(0));
 
   // coming back to the app: pull in anything saved, refresh "Today"/"Yesterday", cursor back in the box
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") {
       render();
+      renderBackup();
       syncFromStorage();
-      if (!confirmId) input.focus();
+      scheduleBackup(0); // pull anything added on GitHub right away
+      if (!confirmId && panel.hidden) input.focus();
     } else {
       writeLocal(withStored());
+      flushBackup();
     }
   });
+  window.addEventListener("online", () => scheduleBackup(0));
   window.addEventListener("pagehide", () => writeLocal(withStored()));
 
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
