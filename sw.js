@@ -1,5 +1,5 @@
 // Opens instantly from the saved copy, then quietly fetches any update for next time.
-const CACHE = "brain-dump-v3";
+const CACHE = "brain-dump-v4";
 const FILES = [
   "./",
   "index.html",
@@ -19,9 +19,10 @@ self.addEventListener("install", (e) => {
 });
 
 self.addEventListener("activate", (e) => {
+  // Planner lives on the same site and shares this cache storage, so only clear our own old copies
   e.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => k.startsWith("brain-dump-") && k !== CACHE).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
